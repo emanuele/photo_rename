@@ -6,6 +6,7 @@ import time
 import numpy as np
 from shutil import copy2, move
 from joint_argsort import joint_argsort
+from itertools import chain
 
 
 class PictureFile(object):
@@ -37,14 +38,13 @@ class PictureFile(object):
         assert(self.file_exif_datetime_original == self.file_exif_datetime_image)
 
 class PictureCollection(object):
-    def __init__(self, name, pfs=None, date=None, suffix='.SRW'):
+    def __init__(self, name, pfs=None, date=None):
         self.name = name
         self.pfs = pfs
         self.date = date  # string %Y%m%d
-        self.suffix = suffix
         self.consistent = False
 
-    def check_consistency(self):
+    def check_consistency(self, exclude_ctimes=False):
         exif_ctimes = [pf.file_exif_datetime_image for pf in self.pfs]
         file_ctimes = [pf.file_ctime for pf in self.pfs]
         sequence_numbers = [pf.filename_sequence_number for pf in self.pfs]
@@ -73,11 +73,15 @@ class PictureCollection(object):
             print("sequence_numbers_order: %s" % sequence_numbers_order)
             self.match_file_sequence = False
 
-        if self.match_exif_file == True and self.match_exif_sequence == True and self.match_file_sequence == True:
+        if (self.match_exif_file == True and self.match_exif_sequence == True and self.match_file_sequence == True) or (exclude_ctimes and self.match_exif_sequence == True):
             self.consistent = True
-            self.argsort = exif_ctimes_order
+            self.argsort = sequence_numbers_order
             self.order = np.argsort(self.argsort)
-            print("EXIFs, file metadata and sequence numbers are consistent!")
+            if not exclude_ctimes:
+                print("EXIFs, file metadata and sequence numbers are consistent!")
+            else:
+                print("EXIFs and sequence numbers are consistent!")
+
 
     def compute_new_names(self, initial_number=1, digits=4):
         self.initial_number = initial_number
@@ -87,8 +91,8 @@ class PictureCollection(object):
             self.date = time.strftime("%Y%m%d", initial_ctime)
 
         self.format = "%0" + str(digits) + 'd'
-        self.template = self.date + '_' + self.name + '_' + self.format + self.suffix
-        self.new_names = [self.template % (oi + self.initial_number) for oi in self.order]
+        self.template = self.date + '_' + self.name + '_' + self.format + '%s'
+        self.new_names = [self.template % (oi + self.initial_number, self.pfs[oi].extension) for oi in self.order]
         self.old_names = [pf.filename_relative for pf in self.pfs]
 
     def rename(self, target_folder_name, initial_number=1, digits=4, copy=True):
@@ -114,21 +118,21 @@ class PictureCollection(object):
 
 
 if __name__ == '__main__':
-    event_name = 'trento-compleanno-nausicaa'
+    # event_name = 'trento-compleanno-nausicaa'
     origin_sequence_min = 0000
     origin_sequence_max = 9999
     origin_folder_name = '/mnt/DCIM/268PHOTO/'
     target_folder_name = '/tmp/raw/'
 
-    suffix = '.SRW'
-    
+    glob_patterns = ['*.SRW', '*.JPG']
+
     origin_filename_format = 'SAM_%04d.JPG'
     assert((origin_sequence_min >= 0) and (origin_sequence_min <= 9999))
     assert((origin_sequence_max >= 0) and (origin_sequence_max <= 9999))
     assert(origin_sequence_min <= origin_sequence_max)
     filename_relative = origin_filename_format % origin_sequence_min
     filename_absolute = origin_folder_name + filename_relative
-    filenames_in_folder = sorted(glob(origin_folder_name + '*' + suffix))
+    filenames_in_folder = sorted(chain.from_iterable(glob(origin_folder_name + gb) for gb in glob_patterns))
 
     pfs = []
     print("Getting infos from all files between min (%s) and max (%s):")
@@ -145,6 +149,6 @@ if __name__ == '__main__':
         else:
             print("SKIPPED")
 
-    pc = PictureCollection(event_name, pfs, suffix=suffix)
+    pc = PictureCollection(event_name, pfs)
     pc.check_consistency()
     # pc.rename(target_folder_name)
